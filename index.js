@@ -1,151 +1,148 @@
-import dotenv from "dotenv";
-dotenv.config();
-
-import { Client, GatewayIntentBits } from "discord.js";
+import fetch from "node-fetch";
 import Parser from "rss-parser";
-import axios from "axios";
-import * as cheerio from "cheerio";
 import fs from "fs";
-import cron from "node-cron";
+import http from "http";
+import "dotenv/config";
+
+import { SOURCES } from "./sources.js";
+
+const parser = new Parser();
+const postedPath = "./noticiasPosteadas.json";
+
+// ===============================
+//   FUNCION PARA LIMPIAR LINKS
+// ===============================
+function cleanLink(url) {
+    try {
+        const u = new URL(url);
+        u.search = ""; // elimina utm, tracking
+        u.hash = "";   // elimina anclas
+        return u.toString();
+    } catch {
+        return url;
+    }
+}
+
+// ===============================
+//   CARGAR / CREAR ARCHIVO LOCAL
+// ===============================
+function loadPosted() {
+    if (!fs.existsSync(postedPath)) {
+        fs.writeFileSync(postedPath, JSON.stringify([]));
+        return [];
+    }
+    return JSON.parse(fs.readFileSync(postedPath));
+}
+
+function savePosted(data) {
+    fs.writeFileSync(postedPath, JSON.stringify(data, null, 2));
+}
+
+let posted = loadPosted();
+
+// ===============================
+//       DISCORD CLIENT
+// ===============================
+import { Client, GatewayIntentBits } from "discord.js";
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
-const parser = new Parser();
 
-const archivoPosteadas = './noticiasPosteadas.json';
-let noticiasPosteadas = [];
-if (fs.existsSync(archivoPosteadas)) {
-  noticiasPosteadas = JSON.parse(fs.readFileSync(archivoPosteadas, 'utf-8'));
+// ===============================
+//      POSTEAR EN DISCORD
+// ===============================
+async function postToDiscord(newsItem, sourceName) {
+    const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+
+    const message = `📰 **${newsItem.title}**  
+🔗 ${newsItem.link}  
+📝 *Fuente: ${sourceName}*`;
+
+    await channel.send(message);
+    console.log("📢 Noticia posteada:", newsItem.title);
 }
 
-// RSS feeds confiables en español
-const rssFeeds = [
-  'https://pressover.news/feed/',
-  'https://www.xataka.com/categoria/videojuegos/rss2.xml'
-];
+// ===============================
+//       SCRAPER DE FEEDS
+// ===============================
+async function checkFeeds() {
+    console.log("📡 Revisando feeds...");
 
-// Palabras en inglés para filtrar
-const palabrasIngles = ['game', 'online', 'virtual', 'play'];
-
-// Scraping Vandal
-async function scrapeVandal() {
-  const url = 'https://vandal.elespanol.com/noticias/';
-  const res = await axios.get(url);
-  const $ = cheerio.load(res.data);
-  const noticias = [];
-
-  $('.article-list-item__title a').each((i, el) => {
-    const title = $(el).text().trim();
-    const link = $(el).attr('href');
-    if (link && title) {
-      noticias.push({
-        title,
-        link: link.startsWith('http') ? link : 'https://vandal.elespanol.com' + link,
-        pubDate: new Date() // como Vandal no tiene fecha en RSS, usamos hora de scraping
-      });
-    }
-  });
-
-  return noticias;
-}
-
-// Scraping DEV
-async function scrapeDEV() {
-  const url = 'https://www.dev.org.es/noticias-a-eventos/noticias-dev/';
-  const res = await axios.get(url);
-  const $ = cheerio.load(res.data);
-  const noticias = [];
-
-  $('.entry-title a').each((i, el) => {
-    const title = $(el).text().trim();
-    const link = $(el).attr('href');
-    if (link && title) {
-      noticias.push({ title, link, pubDate: new Date() });
-    }
-  });
-
-  return noticias;
-}
-
-// Obtener la noticia más reciente
-function obtenerMasReciente(arr) {
-  return arr.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))[0];
-}
-
-async function postearNoticias() {
-  try {
-    let todas = [];
-
-    // RSS
-    for (const feed of rssFeeds) {
-      try {
-        const rss = await parser.parseURL(feed);
-        rss.items.forEach(item => {
-          todas.push({
-            title: item.title,
-            link: item.link,
-            pubDate: item.pubDate ? new Date(item.pubDate) : new Date()
-          });
-        });
-      } catch (e) {
-        console.error('Error RSS feed:', feed, e.message);
-      }
-    }
-
-    // Scraping Vandal
     try {
-      const vandalNews = await scrapeVandal();
-      todas.push(...vandalNews);
-    } catch (e) {
-      console.error('Error scraping Vandal:', e.message);
+        let allNews = [];
+
+        for (const source of SOURCES) {
+            try {
+                const feed = await parser.parseURL(source.url);
+                const items = feed.items.map(item => ({
+                    title: item.title,
+                    link: cleanLink(item.link),  // <-- limpieza de link
+                    isoDate: item.isoDate,
+                    source: source.name
+                }));
+
+                allNews = allNews.concat(items);
+                console.log(`✔ ${source.name} → OK (${items.length} noticias)`);
+
+            } catch (err) {
+                console.log(`❌ Error en "${source.name}":`, err.message);
+            }
+        }
+
+        if (allNews.length === 0) {
+            console.log("⛔ No se pudieron obtener noticias");
+            return;
+        }
+
+        // Ordenar por fecha (más nueva primero)
+        allNews.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate));
+
+        // Filtrar solo las NO posteadas
+        const nuevas = allNews.filter(item => !posted.includes(cleanLink(item.link)));
+
+        if (nuevas.length === 0) {
+            console.log("⛔ No hay noticias nuevas");
+            return;
+        }
+
+        // Posteamos SOLO la más nueva
+        const noticia = nuevas[0];
+
+        await postToDiscord(noticia, noticia.source);
+
+        // Agregar al archivo
+        posted.push(cleanLink(noticia.link));
+        savePosted(posted);
+
+    } catch (err) {
+        console.error("❌ Error general al revisar feeds:", err);
     }
-
-    // Scraping DEV
-    try {
-      const devNews = await scrapeDEV();
-      todas.push(...devNews);
-    } catch (e) {
-      console.error('Error scraping DEV:', e.message);
-    }
-
-    // Filtrar ya posteadas
-    let nuevas = todas.filter(n => !noticiasPosteadas.includes(n.link));
-
-    // Filtrar inglés
-    nuevas = nuevas.filter(n =>
-      !palabrasIngles.some(p => n.title.toLowerCase().includes(p))
-    );
-
-    if (nuevas.length === 0) {
-      console.log('No hay noticias nuevas.');
-      return;
-    }
-
-    // Elegir la noticia más reciente
-    const noticia = obtenerMasReciente(nuevas);
-    const canal = await client.channels.fetch(process.env.CHANNEL_ID);
-    await canal.send(`**${noticia.title}**\n${noticia.link}`);
-
-    noticiasPosteadas.push(noticia.link);
-    fs.writeFileSync(archivoPosteadas, JSON.stringify(noticiasPosteadas, null, 2));
-    console.log('Noticia posteada:', noticia.title);
-
-  } catch (e) {
-    console.error('Error general al postear:', e);
-  }
 }
 
-// Cada 3 horas
-cron.schedule('0 */3 * * *', () => {
-  postearNoticias();
+// ===============================
+//      EJECUCIÓN CADA 10 MIN
+// ===============================
+client.once("ready", () => {
+    console.log(`🤖 Bot iniciado como ${client.user.tag}`);
+
+    checkFeeds(); // chequeo inicial
+
+    setInterval(checkFeeds, 10 * 60 * 1000); // 10 minutos
 });
 
-client.on('clientReady', () => {
-  console.log(`Bot iniciado como ${client.user.tag}`);
-  postearNoticias();
+// ===============================
+//     SERVER HTTP (para Render)
+// ===============================
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Bot de noticias corriendo\n");
+}).listen(PORT, () => {
+    console.log(`🌐 Servidor HTTP escuchando en puerto ${PORT}`);
 });
 
+// ===============================
+//      LOGIN DE DISCORD
+// ===============================
 client.login(process.env.DISCORD_TOKEN);
-
-
