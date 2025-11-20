@@ -15,8 +15,8 @@ const postedPath = "./noticiasPosteadas.json";
 function cleanLink(url) {
     try {
         const u = new URL(url);
-        u.search = ""; // elimina utm, tracking
-        u.hash = "";   // elimina anclas
+        u.search = "";
+        u.hash = "";
         return u.toString();
     } catch {
         return url;
@@ -77,7 +77,7 @@ async function checkFeeds() {
                 const feed = await parser.parseURL(source.url);
                 const items = feed.items.map(item => ({
                     title: item.title,
-                    link: cleanLink(item.link),  // <-- limpieza de link
+                    link: cleanLink(item.link),
                     isoDate: item.isoDate,
                     source: source.name
                 }));
@@ -95,10 +95,8 @@ async function checkFeeds() {
             return;
         }
 
-        // Ordenar por fecha (más nueva primero)
         allNews.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate));
 
-        // Filtrar solo las NO posteadas
         const nuevas = allNews.filter(item => !posted.includes(cleanLink(item.link)));
 
         if (nuevas.length === 0) {
@@ -106,12 +104,10 @@ async function checkFeeds() {
             return;
         }
 
-        // Posteamos SOLO la más nueva
         const noticia = nuevas[0];
 
         await postToDiscord(noticia, noticia.source);
 
-        // Agregar al archivo
         posted.push(cleanLink(noticia.link));
         savePosted(posted);
 
@@ -126,23 +122,26 @@ async function checkFeeds() {
 client.once("ready", () => {
     console.log(`🤖 Bot iniciado como ${client.user.tag}`);
 
-    checkFeeds(); // chequeo inicial
+    checkFeeds();
 
     setInterval(checkFeeds, 10 * 60 * 1000); // 10 minutos
 });
 
 // ===============================
-//     SERVER HTTP (para Render)
+//     SERVER HTTP (Render fix)
 // ===============================
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("Bot de noticias corriendo\n");
-}).listen(PORT, () => {
-    console.log(`🌐 Servidor HTTP escuchando en puerto ${PORT}`);
-});
+// Render SIEMPRE envía process.env.PORT → nunca usar 3000 como fallback
+if (process.env.PORT) {
+    http.createServer((req, res) => {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("Bot de noticias corriendo\n");
+    }).listen(process.env.PORT, () => {
+        console.log(`🌐 Servidor HTTP escuchando en puerto ${process.env.PORT}`);
+    });
+}
 
 // ===============================
 //      LOGIN DE DISCORD
 // ===============================
 client.login(process.env.DISCORD_TOKEN);
+
