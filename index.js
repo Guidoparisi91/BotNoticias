@@ -109,7 +109,10 @@ async function checkFeeds() {
             return;
         }
 
+        // Ordenar por fecha descendente (la más reciente primero)
         allNews.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate));
+
+        // Filtrar solo noticias que aún no se hayan posteado
         const nuevas = allNews.filter(item => !posted.includes(cleanLink(item.link)));
 
         if (nuevas.length === 0) {
@@ -117,11 +120,11 @@ async function checkFeeds() {
             return;
         }
 
-        for (const noticia of nuevas) {
-            await postToDiscord(noticia, noticia.source);
-            posted.push(cleanLink(noticia.link));
-        }
+        // Tomar solo la noticia más reciente
+        const noticia = nuevas[0];
 
+        await postToDiscord(noticia, noticia.source);
+        posted.push(cleanLink(noticia.link));
         savePosted(posted);
 
     } catch (err) {
