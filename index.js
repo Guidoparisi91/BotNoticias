@@ -1,7 +1,7 @@
 import fetch from "node-fetch";
 import Parser from "rss-parser";
 import fs from "fs";
-import http from "http";
+import express from "express";
 import "dotenv/config";
 
 import { SOURCES } from "./sources.js";
@@ -46,7 +46,10 @@ let posted = loadPosted();
 import { Client, GatewayIntentBits } from "discord.js";
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages
+    ]
 });
 
 // ===============================
@@ -55,8 +58,8 @@ const client = new Client({
 async function postToDiscord(newsItem, sourceName) {
     const channel = await client.channels.fetch(process.env.CHANNEL_ID);
 
-    const message = `📰 **${newsItem.title}**  
-🔗 ${newsItem.link}  
+    const message = `📰 **${newsItem.title}**
+🔗 ${newsItem.link}
 📝 *Fuente: ${sourceName}*`;
 
     await channel.send(message);
@@ -119,29 +122,28 @@ async function checkFeeds() {
 // ===============================
 //      EJECUCIÓN CADA 10 MIN
 // ===============================
-client.once("ready", () => {
+client.once("clientReady", () => {
     console.log(`🤖 Bot iniciado como ${client.user.tag}`);
 
     checkFeeds();
-
-    setInterval(checkFeeds, 10 * 60 * 1000); // 10 minutos
+    setInterval(checkFeeds, 10 * 60 * 1000);
 });
 
 // ===============================
-//     SERVER HTTP (Render fix)
+//     SERVER EXPRESS (Render fix)
 // ===============================
-// Render SIEMPRE envía process.env.PORT → nunca usar 3000 como fallback
-if (process.env.PORT) {
-    http.createServer((req, res) => {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("Bot de noticias corriendo\n");
-    }).listen(process.env.PORT, () => {
-        console.log(`🌐 Servidor HTTP escuchando en puerto ${process.env.PORT}`);
-    });
-}
+const app = express();
+const PORT = process.env.PORT; // Render SIEMPRE manda este env var
+
+app.get("/", (req, res) => {
+    res.send("Bot de noticias corriendo 🚀");
+});
+
+app.listen(PORT, () => {
+    console.log(`🌐 Web service escuchando en puerto ${PORT}`);
+});
 
 // ===============================
 //      LOGIN DE DISCORD
 // ===============================
 client.login(process.env.DISCORD_TOKEN);
-
