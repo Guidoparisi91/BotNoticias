@@ -119,7 +119,7 @@ async function checkFeeds() {
 // ===============================
 //      EJECUCIÓN CADA 10 MIN
 // ===============================
-client.once("ready", () => {
+client.once("clientReady", () => {
     console.log(`🤖 Bot iniciado como ${client.user.tag}`);
 
     checkFeeds(); // Ejecuta al iniciar
@@ -144,3 +144,4 @@ app.listen(PORT, () => {
 //      LOGIN DE DISCORD
 // ===============================
 client.login(process.env.DISCORD_TOKEN);
+
