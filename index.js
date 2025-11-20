@@ -5,14 +5,14 @@ import express from "express";
 import "dotenv/config";
 
 import { SOURCES } from "./sources.js";
-
 import { Client, GatewayIntentBits } from "discord.js";
 
 const parser = new Parser();
 const postedPath = "./noticiasPosteadas.json";
+const lastRunFile = "./lastRun.json";
 
 // ===============================
-//   FUNCION PARA LIMPIAR LINKS
+// FUNCIONES AUXILIARES
 // ===============================
 function cleanLink(url) {
     try {
@@ -25,9 +25,6 @@ function cleanLink(url) {
     }
 }
 
-// ===============================
-//   CARGAR / CREAR ARCHIVO LOCAL
-// ===============================
 function loadPosted() {
     if (!fs.existsSync(postedPath)) {
         fs.writeFileSync(postedPath, JSON.stringify([]));
@@ -40,17 +37,25 @@ function savePosted(data) {
     fs.writeFileSync(postedPath, JSON.stringify(data, null, 2));
 }
 
-let posted = loadPosted();
+function getLastRun() {
+    if (!fs.existsSync(lastRunFile)) return 0;
+    const data = JSON.parse(fs.readFileSync(lastRunFile));
+    return new Date(data.lastRun).getTime();
+}
+
+function saveLastRun() {
+    fs.writeFileSync(lastRunFile, JSON.stringify({ lastRun: new Date() }));
+}
 
 // ===============================
-//       DISCORD CLIENT
+// DISCORD CLIENT
 // ===============================
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
 // ===============================
-//      POSTEAR EN DISCORD
+// POSTEAR EN DISCORD
 // ===============================
 async function postToDiscord(newsItem, sourceName) {
     try {
@@ -67,8 +72,10 @@ async function postToDiscord(newsItem, sourceName) {
 }
 
 // ===============================
-//       SCRAPER DE FEEDS
+// SCRAPER DE FEEDS
 // ===============================
+let posted = loadPosted();
+
 async function checkFeeds() {
     console.log("📡 Revisando feeds...");
 
@@ -84,7 +91,6 @@ async function checkFeeds() {
                     isoDate: item.isoDate,
                     source: source.name
                 }));
-
                 allNews = allNews.concat(items);
                 console.log(`✔ ${source.name} → OK (${items.length} noticias)`);
             } catch (err) {
@@ -105,10 +111,11 @@ async function checkFeeds() {
             return;
         }
 
-        const noticia = nuevas[0];
-        await postToDiscord(noticia, noticia.source);
+        for (const noticia of nuevas) {
+            await postToDiscord(noticia, noticia.source);
+            posted.push(cleanLink(noticia.link));
+        }
 
-        posted.push(cleanLink(noticia.link));
         savePosted(posted);
 
     } catch (err) {
@@ -117,17 +124,21 @@ async function checkFeeds() {
 }
 
 // ===============================
-//      EJECUCIÓN CADA 10 MIN
+// AUTOEJECUCIÓN CON LASTRUN
 // ===============================
-client.once("clientReady", () => {
-    console.log(`🤖 Bot iniciado como ${client.user.tag}`);
+async function tryCheckFeeds() {
+    const now = Date.now();
+    const lastRun = getLastRun();
+    const INTERVAL = 10 * 60 * 1000; // 10 minutos, cambiar a 3*60*60*1000 para 3 horas
 
-    checkFeeds(); // Ejecuta al iniciar
-    setInterval(checkFeeds, 10 * 60 * 1000); // Cada 10 minutos
-});
+    if (now - lastRun >= INTERVAL) {
+        await checkFeeds();
+        saveLastRun();
+    }
+}
 
 // ===============================
-//     SERVER EXPRESS (Render fix)
+// EXPRESS SERVER
 // ===============================
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -136,12 +147,22 @@ app.get("/", (req, res) => {
     res.send("Bot de noticias corriendo 🚀");
 });
 
+app.get("/runFeeds", async (req, res) => {
+    await tryCheckFeeds();
+    res.send("✅ Feeds revisados");
+});
+
 app.listen(PORT, () => {
     console.log(`🌐 Web service escuchando en puerto ${PORT}`);
 });
 
 // ===============================
-//      LOGIN DE DISCORD
+// LOGIN DISCORD
 // ===============================
 client.login(process.env.DISCORD_TOKEN);
 
+client.on("ready", () => {
+    console.log(`🤖 Bot iniciado como ${client.user.tag}`);
+    tryCheckFeeds(); // primer check al iniciar
+    setInterval(tryCheckFeeds, 60 * 1000); // revisar cada minuto
+});
