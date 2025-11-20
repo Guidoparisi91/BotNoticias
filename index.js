@@ -6,6 +6,8 @@ import "dotenv/config";
 
 import { SOURCES } from "./sources.js";
 
+import { Client, GatewayIntentBits } from "discord.js";
+
 const parser = new Parser();
 const postedPath = "./noticiasPosteadas.json";
 
@@ -43,27 +45,25 @@ let posted = loadPosted();
 // ===============================
 //       DISCORD CLIENT
 // ===============================
-import { Client, GatewayIntentBits } from "discord.js";
-
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages
-    ]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
 // ===============================
 //      POSTEAR EN DISCORD
 // ===============================
 async function postToDiscord(newsItem, sourceName) {
-    const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-
-    const message = `📰 **${newsItem.title}**
+    try {
+        const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+        const message = `📰 **${newsItem.title}**
 🔗 ${newsItem.link}
 📝 *Fuente: ${sourceName}*`;
 
-    await channel.send(message);
-    console.log("📢 Noticia posteada:", newsItem.title);
+        await channel.send(message);
+        console.log("📢 Noticia posteada:", newsItem.title);
+    } catch (err) {
+        console.error("❌ Error al postear en Discord:", err);
+    }
 }
 
 // ===============================
@@ -87,7 +87,6 @@ async function checkFeeds() {
 
                 allNews = allNews.concat(items);
                 console.log(`✔ ${source.name} → OK (${items.length} noticias)`);
-
             } catch (err) {
                 console.log(`❌ Error en "${source.name}":`, err.message);
             }
@@ -99,7 +98,6 @@ async function checkFeeds() {
         }
 
         allNews.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate));
-
         const nuevas = allNews.filter(item => !posted.includes(cleanLink(item.link)));
 
         if (nuevas.length === 0) {
@@ -108,7 +106,6 @@ async function checkFeeds() {
         }
 
         const noticia = nuevas[0];
-
         await postToDiscord(noticia, noticia.source);
 
         posted.push(cleanLink(noticia.link));
@@ -122,18 +119,18 @@ async function checkFeeds() {
 // ===============================
 //      EJECUCIÓN CADA 10 MIN
 // ===============================
-client.once("clientReady", () => {
+client.once("ready", () => {
     console.log(`🤖 Bot iniciado como ${client.user.tag}`);
 
-    checkFeeds();
-    setInterval(checkFeeds, 10 * 60 * 1000);
+    checkFeeds(); // Ejecuta al iniciar
+    setInterval(checkFeeds, 10 * 60 * 1000); // Cada 10 minutos
 });
 
 // ===============================
 //     SERVER EXPRESS (Render fix)
 // ===============================
 const app = express();
-const PORT = process.env.PORT; // Render SIEMPRE manda este env var
+const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
     res.send("Bot de noticias corriendo 🚀");
