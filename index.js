@@ -133,12 +133,13 @@ async function checkFeeds() {
 }
 
 // ===============================
-// AUTOEJECUCIÓN CON LASTRUN
+// AUTOEJECUCIÓN CON LASTRUN Y INTERVALO CONFIGURABLE
 // ===============================
 async function tryCheckFeeds() {
     const now = Date.now();
     const lastRun = getLastRun();
-    const INTERVAL = 10 * 60 * 1000; // 10 minutos, cambiar a 3*60*60*1000 para 3 horas
+    const intervalMinutes = parseInt(process.env.POST_INTERVAL_MIN) || 10; // default 10 min
+    const INTERVAL = intervalMinutes * 60 * 1000;
 
     if (now - lastRun >= INTERVAL) {
         await checkFeeds();
