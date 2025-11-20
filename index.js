@@ -30,7 +30,7 @@ function loadPosted() {
         fs.writeFileSync(postedPath, JSON.stringify([]));
         return [];
     }
-    return JSON.parse(fs.readFileSync(postedPath));
+    return JSON.parse(fs.readFileSync(postedPath, "utf-8"));
 }
 
 function savePosted(data) {
@@ -38,9 +38,15 @@ function savePosted(data) {
 }
 
 function getLastRun() {
-    if (!fs.existsSync(lastRunFile)) return 0;
-    const data = JSON.parse(fs.readFileSync(lastRunFile));
-    return new Date(data.lastRun).getTime();
+    try {
+        if (!fs.existsSync(lastRunFile)) return 0;
+        const data = JSON.parse(fs.readFileSync(lastRunFile, "utf-8"));
+        return new Date(data.lastRun).getTime();
+    } catch (err) {
+        console.error("⚠️ lastRun.json corrupto, se reiniciará");
+        saveLastRun();
+        return 0;
+    }
 }
 
 function saveLastRun() {
